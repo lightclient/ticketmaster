@@ -13,6 +13,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 )
 
+type Address [20]byte
 type Hash [32]byte
 
 func main() {
