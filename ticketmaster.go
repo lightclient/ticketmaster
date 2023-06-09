@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 type TicketMaster struct {
@@ -104,5 +107,69 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	json.NewEncoder(w).Encode(nil)
+
+	// Check the signature is from us
+	sig := big.NewInt(0).SetBytes(req.Signature)
+	got := sig.Exp(sig, big.NewInt(int64(t.rsa.PublicKey.E)), t.rsa.N)
+	want := sha256.Sum256(req.Ticket)
+	if !bytes.Equal(got.Bytes(), want[:]) {
+		log.Println("invalid signature")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Check that this signature hasn't already been used
+	var alreadyused bool
+	err = t.db.View(func(txn *badger.Txn) error {
+		_, err := txn.Get(append([]byte("sig"), req.Signature...))
+		if err != nil {
+			return err
+		}
+		if err == nil {
+			alreadyused = true
+		}
+		if err != badger.ErrKeyNotFound {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("error reading the signature table: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if alreadyused {
+		log.Println("signature was already used")
+		w.WriteHeader(http.StatusAlreadyReported)
+		return
+	}
+
+	// Create the transaction
+	nonce := uint64(0)
+	amount := big.NewInt(ticketCostMinusFee)
+	gasLimit := uint64(txGasLimit)
+	gasPrice := big.NewInt(20000000000) // 20 gwei
+
+	tx := types.NewTransaction(nonce, req.Address, amount, gasLimit, gasPrice, nil)
+
+	signer := types.NewEIP155Signer(big.NewInt(11155111))
+	signedTx, _ := types.SignTx(tx, signer, t.pk)
+
+	var buf bytes.Buffer
+	if err = signedTx.EncodeRLP(&buf); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+
+	// Store the signature
+	err = t.db.Update(func(txn *badger.Txn) error {
+		return txn.Set(append([]byte("sig"), req.Signature...), []byte{1})
+	})
+	if err != nil {
+		log.Printf("error writing the signature table: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	res := fundResponse{RawTransaction: buf.Bytes(), Hash: signedTx.Hash()}
+	json.NewEncoder(w).Encode(res)
 }
