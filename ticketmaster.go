@@ -1,16 +1,21 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"encoding/json"
+	"math/big"
 	"net/http"
 
 	"github.com/dgraph-io/badger/v3"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 type TicketMaster struct {
-	db *badger.DB
-	pk *rsa.PrivateKey
+	db  *badger.DB
+	rsa *rsa.PrivateKey
+	pk  *ecdsa.PrivateKey
 }
 
 func (t *TicketMaster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -33,12 +38,12 @@ func (t *TicketMaster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type ticketRequest struct {
-	BlindedTicket   []byte `json:"ticket"`
-	TransactionHash Hash   `json:"txhash"`
+	BlindedTicket   hexutil.Bytes `json:"ticket"`
+	TransactionHash common.Hash   `json:"txhash"`
 }
 
 type ticketResponse struct {
-	SignedBlindedTicket []byte `json:"signed_blinded_ticket"`
+	SignedBlindedTicket hexutil.Bytes `json:"signed_blinded_ticket"`
 }
 
 func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
@@ -48,14 +53,26 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	res := ticketResponse{SignedBlindedTicket: signTicket(t.pk, req.BlindedTicket)}
+
+	// TODO(@gballet): verify req.TransactionHash
+
+	// Sign ticket.
+	st := new(big.Int).SetBytes(req.BlindedTicket)
+	st = st.Exp(st, t.rsa.D, t.rsa.N)
+
+	res := ticketResponse{SignedBlindedTicket: st.Bytes()}
 	json.NewEncoder(w).Encode(res)
 }
 
 type fundRequest struct {
-	Address   Address `json:"address"`
-	Ticket    []byte  `json:"ticket"`
-	Signature []byte  `json:"signature"`
+	Address   common.Address `json:"address"`
+	Ticket    hexutil.Bytes  `json:"ticket"`
+	Signature hexutil.Bytes  `json:"signature"`
+}
+
+type fundResponse struct {
+	RawTransaction hexutil.Bytes `json:"signed_tx"`
+	Hash           common.Hash   `json:"txhash"`
 }
 
 func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
