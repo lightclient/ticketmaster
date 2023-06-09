@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"encoding/json"
@@ -54,7 +55,25 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(@gballet): verify req.TransactionHash
+	// verify req.TransactionHash
+	var txdata []byte
+	err = t.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(req.TransactionHash.Bytes())
+		if err != nil {
+			return err
+		}
+		val, err := item.ValueCopy(nil)
+		txdata = append(txdata, val...)
+		return err
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if !bytes.Equal(txdata, req.BlindedTicket) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	// Sign ticket.
 	st := new(big.Int).SetBytes(req.BlindedTicket)
