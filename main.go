@@ -34,7 +34,7 @@ func main() {
 	)
 	db, err := badger.Open(badger.DefaultOptions(dbPath))
 	if err != nil {
-		exit("unable to open db at %s: %v", err)
+		exit("unable to open db at %s: %v", dbPath, err)
 	}
 	defer db.Close()
 	rsaKey, err := loadRSAPrivateKeyFromFile(pemFile)
