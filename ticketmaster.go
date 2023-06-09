@@ -5,8 +5,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
+	"os"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/ethereum/go-ethereum/common"
@@ -67,6 +69,7 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading txhash: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
