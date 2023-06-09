@@ -10,20 +10,27 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+type Address [20]byte
+type Hash [32]byte
+
 func main() {
-	if len(os.Args) < 4 {
-		exit("usage: <db> <rsa-key> <ecdsa-key>")
+	if len(os.Args) < 6 {
+		exit("usage: <db> <rsa-key> <ecdsa-key> <rpc url> <tickermaster address>")
 	}
 	var (
 		dbPath    = os.Args[1]
 		pemFile   = os.Args[2]
 		ecdsaFile = os.Args[3]
+		rpcUrl    = os.Args[4]
+		tmaddr    = common.HexToAddress(os.Args[5])
 	)
 	db, err := badger.Open(badger.DefaultOptions(dbPath))
 	if err != nil {
@@ -44,9 +51,27 @@ func main() {
 	}
 	fmt.Println(common.Bytes2Hex(crypto.FromECDSA(ecdsaKey)))
 
+	client, err := ethclient.Dial(rpcUrl)
+	if err != nil {
+		log.Fatalf("Error creating the RPC client: %v", err)
+	}
+
+	if tmaddr == (common.Address{}) {
+		exit("invalid tickermaster address")
+	}
+
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	go pollForNewBlocks(done, &wg, db, client, tmaddr)
+	wg.Add(1)
+	defer func() {
+		done <- struct{}{}
+	}()
 	fmt.Println("listening 127.0.0.1:8000")
 	handler := &TicketMaster{db: db, rsa: rsaKey}
 	log.Fatal(http.ListenAndServe(":8000", handler))
+	done <- struct{}{}
+	wg.Wait()
 }
 
 func loadRSAPrivateKeyFromFile(filename string) (*rsa.PrivateKey, error) {
