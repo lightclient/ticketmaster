@@ -14,13 +14,9 @@ import (
 	"sync"
 
 	"github.com/dgraph-io/badger/v3"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
-
-type Address [20]byte
-type Hash [32]byte
 
 func main() {
 	if len(os.Args) < 5 {
@@ -49,7 +45,6 @@ func main() {
 	if err != nil {
 		exit("unable to read ecdsa key from %s: %v", ecdsaFile, err)
 	}
-	fmt.Println("ecdsaKey: ", common.Bytes2Hex(crypto.FromECDSA(ecdsaKey)))
 
 	client, err := ethclient.Dial(rpcUrl)
 	if err != nil {
