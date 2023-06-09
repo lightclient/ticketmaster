@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/dgraph-io/badger/v3"
@@ -62,8 +63,8 @@ func main() {
 
 	var wg sync.WaitGroup
 	done := make(chan struct{})
-	go pollForNewBlocks(done, &wg, db, client, tmaddr)
 	wg.Add(1)
+	go pollForNewBlocks(done, &wg, db, client, tmaddr)
 	defer func() {
 		done <- struct{}{}
 	}()
@@ -95,7 +96,7 @@ func loadECDSAPrivateKeyFromFile(filename string) (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	return crypto.HexToECDSA(string(key))
+	return crypto.HexToECDSA(strings.TrimSpace(string(key)))
 }
 
 func exit(format string, a ...any) {

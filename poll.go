@@ -40,6 +40,6 @@ outer:
 			}
 
 		}
-		wg.Done()
 	}
+	wg.Done()
 }
