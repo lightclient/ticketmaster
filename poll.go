@@ -8,10 +8,12 @@ import (
 	"sync"
 
 	"github.com/dgraph-io/badger/v3"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 func (t *TicketMaster) pollForNewBlocks(done chan struct{}, wg *sync.WaitGroup) {
+	seen := make(map[common.Hash]bool)
 outer:
 	for {
 		select {
@@ -26,6 +28,11 @@ outer:
 			// NOTE for later: check if the same ticket has been sent.
 			err = t.db.Update(func(txn *badger.Txn) error {
 				for _, tx := range block.Transactions() {
+					if _, ok := seen[tx.Hash()]; ok {
+						continue
+					}
+					seen[tx.Hash()] = true
+
 					if tx.To() != nil && *tx.To() == crypto.PubkeyToAddress(t.pk.PublicKey) {
 						if tx.Value().Cmp(big.NewInt(ticketCost)) != 0 {
 							log.Printf("found transaction with insufficient costs for ticket purchase: %v", tx.Value())
