@@ -42,7 +42,7 @@ outer:
 					// Check if tx is sent to coordinator.
 					if tx.To() != nil && *tx.To() == target {
 						if tx.Value().Cmp(big.NewInt(ticketCost)) < 0 {
-							log.Info("found transaction with insufficient costs for ticket purchase: %v", tx.Value())
+							log.Info("found transaction with insufficient costs for ticket purchase", "amt", tx.Value())
 							continue
 						}
 						err := txn.Set(tx.Hash().Bytes(), tx.Data())
