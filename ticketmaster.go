@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -16,12 +17,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 type TicketMaster struct {
-	db  *badger.DB
-	rsa *rsa.PrivateKey
-	pk  *ecdsa.PrivateKey
+	db     *badger.DB
+	rsa    *rsa.PrivateKey
+	pk     *ecdsa.PrivateKey
+	client *ethclient.Client
 }
 
 func (t *TicketMaster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +169,12 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("error writing the signature table: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if err = t.client.SendTransaction(context.Background(), signedTx); err != nil {
+		log.Printf("error sending transaction: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

@@ -62,7 +62,7 @@ func main() {
 		done <- struct{}{}
 	}()
 	fmt.Println("listening 127.0.0.1:8000")
-	handler := &TicketMaster{db: db, rsa: rsaKey}
+	handler := &TicketMaster{db: db, rsa: rsaKey, client: client}
 	log.Fatal(http.ListenAndServe(":8000", handler))
 	done <- struct{}{}
 	wg.Wait()
