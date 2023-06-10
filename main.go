@@ -57,7 +57,7 @@ func main() {
 	if err != nil {
 		exit("error creating the RPC client: %v", err)
 	}
-	tm := &TicketMaster{db: db, rsa: rsaKey, client: client}
+	tm := &TicketMaster{db: db, rsa: rsaKey, pk: ecdsaKey, client: client}
 
 	// Spin up thread to watch for new payments.
 	var wg sync.WaitGroup
