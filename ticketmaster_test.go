@@ -193,7 +193,7 @@ func TestFundAccount(t *testing.T) {
 	// Request funds.
 	var (
 		url = fmt.Sprintf("%s/redeem", srv.URL)
-		req = &fundRequest{Address: common.Address{0x42}, HashedTickets: []hexutil.Bytes{ticket}, Signatures: []hexutil.Bytes{signBlindedTicket(tm.rsa, ticket)}}
+		req = &redeemRequest{Address: common.Address{0x42}, HashedTickets: []hexutil.Bytes{ticket}, Signatures: []hexutil.Bytes{signBlindedTicket(tm.rsa, ticket)}}
 		w   = bytes.NewBuffer(nil)
 	)
 	json.NewEncoder(w).Encode(req)

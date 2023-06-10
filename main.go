@@ -7,7 +7,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -15,7 +14,9 @@ import (
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 func main() {
@@ -41,23 +42,28 @@ func main() {
 	if err != nil {
 		exit("unable to read rsa key from %s: %v", pemFile, err)
 	}
-	fmt.Println("RSA Public Key:")
-	fmt.Println("N:", rsaKey.N)
-	fmt.Println("E:", rsaKey.E)
+	log.Info("rsa public key", "n", rsaKey.N, "e", rsaKey.E)
 
 	// Read ECDSA key.
 	ecdsaKey, err := loadECDSAPrivateKeyFromFile(ecdsaFile)
 	if err != nil {
 		exit("unable to read ecdsa key from %s: %v", ecdsaFile, err)
 	}
-	fmt.Println("TicketMaster address: ", crypto.PubkeyToAddress(ecdsaKey.PublicKey).Hex())
+	log.Info("ticket master eth address", "addr", crypto.PubkeyToAddress(ecdsaKey.PublicKey).Hex())
 
 	// Open JSON-RPC connection to client.
 	client, err := ethclient.Dial(rpcUrl)
 	if err != nil {
 		exit("error creating the RPC client: %v", err)
 	}
-	tm := &TicketMaster{db: db, rsa: rsaKey, sk: ecdsaKey, client: client}
+
+	// Make ticket master.
+	tm := &TicketMaster{
+		db:     db,
+		rsa:    rsaKey,
+		sk:     ecdsaKey,
+		client: client,
+	}
 
 	// Spin up thread to watch for new payments.
 	var wg sync.WaitGroup
@@ -67,9 +73,14 @@ func main() {
 	defer func() {
 		done <- struct{}{}
 	}()
-	fmt.Println("listening 127.0.0.1:8000")
 
-	log.Fatal(http.ListenAndServe(":8000", tm))
+	// Start HTTP server.
+	log.Info("listening 127.0.0.1:8000")
+	if err := http.ListenAndServe(":8000", tm); err != nil {
+		exit("http server crash stopped: %v", err)
+	}
+
+	// Close poller.
 	done <- struct{}{}
 	wg.Wait()
 }
