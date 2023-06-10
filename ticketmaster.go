@@ -194,6 +194,7 @@ func (t *TicketMaster) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info("ticket redeemed successfully", "hash", tx.Hash())
 	res := fundResponse{RawTransaction: nil, Hash: tx.Hash()}
 	json.NewEncoder(w).Encode(res)
 }
