@@ -212,15 +212,24 @@ func (t *TicketMaster) createTx(to common.Address, tickets int) (*types.Transact
 		return nil, err
 	}
 	// Create and sign tx.
+	tipCap := big.NewInt(42) // god bless the block producer
+	feeCap := max(block.BaseFee().Mul(block.BaseFee(), common.Big2), tipCap)
 	tx := types.NewTx(&types.DynamicFeeTx{
 		ChainID:   params.SepoliaChainConfig.ChainID,
 		Nonce:     nonce,
-		GasTipCap: big.NewInt(42), // god bless the block producer
-		GasFeeCap: block.BaseFee().Mul(block.BaseFee(), common.Big2),
+		GasTipCap: tipCap,
+		GasFeeCap: feeCap,
 		Gas:       params.TxGas, // no free lunch
 		To:        &to,
 		Value:     big.NewInt(ticketCostMinusFee * int64(tickets)),
 	})
 	signer := types.LatestSigner(params.SepoliaChainConfig)
 	return types.SignTx(tx, signer, t.sk)
+}
+
+func max(x, y *big.Int) *big.Int {
+	if x.Cmp(y) == -1 {
+		return y
+	}
+	return x
 }
