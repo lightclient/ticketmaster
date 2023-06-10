@@ -111,8 +111,8 @@ func (t *TicketMaster) handleBuy(w http.ResponseWriter, r *http.Request) {
 
 type redeemRequest struct {
 	Address       common.Address  `json:"address"`
-	HashedTickets []hexutil.Bytes `json:"tickets"`
-	Signatures    []hexutil.Bytes `json:"signatures"`
+	HashedTickets []hexutil.Bytes `json:"ticket"`
+	Signatures    []hexutil.Bytes `json:"signature"`
 }
 
 type fundResponse struct {
