@@ -60,6 +60,7 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 	var req ticketRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error decoding: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -81,6 +82,7 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !bytes.Equal(txdata, req.BlindedTicket) {
+		fmt.Fprintf(os.Stderr, "txdata does not match ticket: got %x, have %x", txdata, req.BlindedTicket)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}

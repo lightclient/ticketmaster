@@ -28,42 +28,48 @@ func main() {
 		ecdsaFile = os.Args[3]
 		rpcUrl    = os.Args[4]
 	)
+
+	// Open database.
 	db, err := badger.Open(badger.DefaultOptions(dbPath))
 	if err != nil {
 		exit("unable to open db at %s: %v", dbPath, err)
 	}
 	defer db.Close()
+
+	// Read RSA key.
 	rsaKey, err := loadRSAPrivateKeyFromFile(pemFile)
 	if err != nil {
 		exit("unable to read rsa key from %s: %v", pemFile, err)
 	}
 	fmt.Println("RSA Public Key:")
-	fmt.Printf("N: %s\n", rsaKey.N)
-	fmt.Printf("E: %d\n", rsaKey.E)
+	fmt.Println("N:", rsaKey.N)
+	fmt.Println("E:", rsaKey.E)
 
+	// Read ECDSA key.
 	ecdsaKey, err := loadECDSAPrivateKeyFromFile(ecdsaFile)
 	if err != nil {
 		exit("unable to read ecdsa key from %s: %v", ecdsaFile, err)
 	}
+	fmt.Println("TicketMaster address: ", crypto.PubkeyToAddress(ecdsaKey.PublicKey).Hex())
 
+	// Open JSON-RPC connection to client.
 	client, err := ethclient.Dial(rpcUrl)
 	if err != nil {
 		exit("error creating the RPC client: %v", err)
 	}
+	tm := &TicketMaster{db: db, rsa: rsaKey, client: client}
 
-	tmaddr := crypto.PubkeyToAddress(ecdsaKey.PublicKey)
-	fmt.Println("TicketMaster address: ", tmaddr.Hex())
-
+	// Spin up thread to watch for new payments.
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 	wg.Add(1)
-	go pollForNewBlocks(done, &wg, db, client, tmaddr)
+	go tm.pollForNewBlocks(done, &wg)
 	defer func() {
 		done <- struct{}{}
 	}()
 	fmt.Println("listening 127.0.0.1:8000")
-	handler := &TicketMaster{db: db, rsa: rsaKey, client: client}
-	log.Fatal(http.ListenAndServe(":8000", handler))
+
+	log.Fatal(http.ListenAndServe(":8000", tm))
 	done <- struct{}{}
 	wg.Wait()
 }

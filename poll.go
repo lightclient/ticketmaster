@@ -7,26 +7,25 @@ import (
 	"sync"
 
 	"github.com/dgraph-io/badger/v3"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
-func pollForNewBlocks(done chan struct{}, wg *sync.WaitGroup, db *badger.DB, client *ethclient.Client, tickerMasterAddress common.Address) {
+func (t *TicketMaster) pollForNewBlocks(done chan struct{}, wg *sync.WaitGroup) {
 outer:
 	for {
 		select {
 		case <-done:
 			break outer
 		default:
-			block, err := client.BlockByNumber(context.Background(), nil)
+			block, err := t.client.BlockByNumber(context.Background(), nil)
 			if err != nil {
 				log.Fatal(err)
 			}
 
 			// NOTE for later: check if the same ticket has been sent.
-			err = db.Update(func(txn *badger.Txn) error {
+			err = t.db.Update(func(txn *badger.Txn) error {
 				for _, tx := range block.Transactions() {
-					if tx.To() != nil && *tx.To() == tickerMasterAddress {
+					if tx.To() != nil && *tx.To() == crypto.PubkeyToAddress(t.pk.PublicKey) {
 						if tx.Value().Cmp(big.NewInt(ticketCost)) != 0 {
 							log.Printf("found transaction with insufficient costs for ticket purchase: %v", tx.Value())
 							continue
