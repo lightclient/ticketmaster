@@ -20,6 +20,10 @@ import (
 )
 
 func main() {
+	glogger := log.NewGlogHandler(log.StreamHandler(os.Stderr, log.TerminalFormat(true)))
+	glogger.Verbosity(log.LvlInfo)
+	log.Root().SetHandler(glogger)
+
 	if len(os.Args) < 5 {
 		exit("usage: <db> <rsa-key> <ecdsa-key> <rpc url>")
 	}
@@ -42,7 +46,7 @@ func main() {
 	if err != nil {
 		exit("unable to read rsa key from %s: %v", pemFile, err)
 	}
-	log.Info("rsa public key", "n", rsaKey.N, "e", rsaKey.E)
+	log.Info("rsa public key", "n", rsaKey.N.String(), "e", rsaKey.E)
 
 	// Read ECDSA key.
 	ecdsaKey, err := loadECDSAPrivateKeyFromFile(ecdsaFile)
