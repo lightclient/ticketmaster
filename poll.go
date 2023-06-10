@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"math/big"
 	"sync"
 
 	"github.com/dgraph-io/badger/v3"
@@ -26,7 +27,7 @@ outer:
 			err = db.Update(func(txn *badger.Txn) error {
 				for _, tx := range block.Transactions() {
 					if tx.To() != nil && *tx.To() == tickerMasterAddress {
-						if tx.Value().Cmp(ticketCost) != 0 {
+						if tx.Value().Cmp(big.NewInt(ticketCost)) != 0 {
 							log.Printf("found transaction with insufficient costs for ticket purchase: %v", tx.Value())
 							continue
 						}
