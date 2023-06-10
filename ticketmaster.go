@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -125,16 +126,13 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	var alreadyused bool
 	err = t.db.View(func(txn *badger.Txn) error {
 		_, err := txn.Get(append([]byte("sig"), req.Signature...))
-		if err != nil {
-			return err
+		if err == badger.ErrKeyNotFound {
+			return nil
 		}
 		if err == nil {
 			alreadyused = true
 		}
-		if err != badger.ErrKeyNotFound {
-			return err
-		}
-		return nil
+		return err
 	})
 	if err != nil {
 		log.Printf("error reading the signature table: %v\n", err)
@@ -148,7 +146,11 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the transaction
-	nonce := uint64(0)
+	nonce, err := t.client.NonceAt(context.Background(), crypto.PubkeyToAddress(t.pk.PublicKey), nil)
+	if err != nil {
+		log.Printf("failed to retrieve nonce: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 	amount := big.NewInt(ticketCostMinusFee)
 	gasLimit := uint64(txGasLimit)
 	gasPrice := big.NewInt(20000000000) // 20 gwei

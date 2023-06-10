@@ -48,7 +48,7 @@ func main() {
 
 	client, err := ethclient.Dial(rpcUrl)
 	if err != nil {
-		log.Fatalf("Error creating the RPC client: %v", err)
+		exit("error creating the RPC client: %v", err)
 	}
 
 	tmaddr := crypto.PubkeyToAddress(ecdsaKey.PublicKey)
