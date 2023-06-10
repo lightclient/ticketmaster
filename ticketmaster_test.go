@@ -15,6 +15,7 @@ import (
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -192,7 +193,7 @@ func TestFundAccount(t *testing.T) {
 	// Request funds.
 	var (
 		url = fmt.Sprintf("%s/fund", srv.URL)
-		req = &fundRequest{Address: common.Address{0x42}, Ticket: ticket, Signature: signTicket(ticket, tm.rsa)}
+		req = &fundRequest{Address: common.Address{0x42}, Tickets: []hexutil.Bytes{ticket}, Signatures: []hexutil.Bytes{signTicket(ticket, tm.rsa)}}
 		w   = bytes.NewBuffer(nil)
 	)
 	json.NewEncoder(w).Encode(req)

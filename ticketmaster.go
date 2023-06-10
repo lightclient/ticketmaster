@@ -98,9 +98,9 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 }
 
 type fundRequest struct {
-	Address   common.Address `json:"address"`
-	Ticket    hexutil.Bytes  `json:"ticket"`
-	Signature hexutil.Bytes  `json:"signature"`
+	Address    common.Address  `json:"address"`
+	Tickets    []hexutil.Bytes `json:"ticket"`
+	Signatures []hexutil.Bytes `json:"signature"`
 }
 
 type fundResponse struct {
@@ -118,36 +118,40 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check the signature is from us
-	sig := big.NewInt(0).SetBytes(req.Signature)
-	got := sig.Exp(sig, big.NewInt(int64(t.rsa.PublicKey.E)), t.rsa.N)
-	want := sha256.Sum256(req.Ticket)
-	if !bytes.Equal(got.Bytes(), want[:]) {
-		log.Println("invalid signature")
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
+	valid := int64(0)
+	for i, ticket := range req.Tickets {
+		sig := big.NewInt(0).SetBytes(req.Signatures[i])
+		got := sig.Exp(sig, big.NewInt(int64(t.rsa.PublicKey.E)), t.rsa.N)
+		want := sha256.Sum256(ticket)
+		if !bytes.Equal(got.Bytes(), want[:]) {
+			log.Println("invalid signature")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 
-	// Check that this signature hasn't already been used
-	var alreadyused bool
-	err = t.db.View(func(txn *badger.Txn) error {
-		_, err := txn.Get(append([]byte("sig"), req.Signature...))
-		if err == badger.ErrKeyNotFound {
-			return nil
+		// Check that this signature hasn't already been used
+		var alreadyused bool
+		err = t.db.View(func(txn *badger.Txn) error {
+			_, err := txn.Get(append([]byte("sig"), req.Signatures[i]...))
+			if err == badger.ErrKeyNotFound {
+				return nil
+			}
+			if err == nil {
+				alreadyused = true
+			}
+			return err
+		})
+		if err != nil {
+			log.Printf("error reading the signature table: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-		if err == nil {
-			alreadyused = true
+		if alreadyused {
+			log.Println("signature was already used")
+			w.WriteHeader(http.StatusAlreadyReported)
+			return
 		}
-		return err
-	})
-	if err != nil {
-		log.Printf("error reading the signature table: %v\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	if alreadyused {
-		log.Println("signature was already used")
-		w.WriteHeader(http.StatusAlreadyReported)
-		return
+		valid += 1
 	}
 
 	// Create the transaction
@@ -156,7 +160,7 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to retrieve nonce: %v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
-	amount := big.NewInt(ticketCostMinusFee)
+	amount := big.NewInt(ticketCostMinusFee * valid)
 	gasLimit := uint64(txGasLimit)
 	gasPrice := big.NewInt(20000000000) // 20 gwei
 
@@ -171,13 +175,15 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Store the signature
-	err = t.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(append([]byte("sig"), req.Signature...), []byte{1})
-	})
-	if err != nil {
-		log.Printf("error writing the signature table: %v\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	for _, sig := range req.Signatures {
+		err = t.db.Update(func(txn *badger.Txn) error {
+			return txn.Set(append([]byte("sig"), sig...), []byte{1})
+		})
+		if err != nil {
+			log.Printf("error writing the signature table: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if err = t.client.SendTransaction(context.Background(), signedTx); err != nil {
