@@ -53,7 +53,7 @@ type ticketRequest struct {
 }
 
 type ticketResponse struct {
-	SignedBlindedTicket hexutil.Bytes `json:"signed_blinded_ticket"`
+	SignedBlindedTicket []hexutil.Bytes `json:"signed_blinded_ticket"`
 }
 
 func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("valid request, signing ticket %x\n", st.Bytes())
 
-	res := ticketResponse{SignedBlindedTicket: st.Bytes()}
+	res := ticketResponse{SignedBlindedTicket: []hexutil.Bytes{st.Bytes()}}
 	json.NewEncoder(w).Encode(res)
 }
 

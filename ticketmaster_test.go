@@ -166,7 +166,7 @@ func TestHandleTicket(t *testing.T) {
 	}
 
 	// Verify signature.
-	sbTicket := new(big.Int).SetBytes(res.SignedBlindedTicket)
+	sbTicket := new(big.Int).SetBytes(res.SignedBlindedTicket[0])
 	sig := new(big.Int).Mod(sbTicket.Mul(sbTicket, bFactor.ModInverse(bFactor, tm.rsa.N)), tm.rsa.N)
 	got := sig.Exp(sig, big.NewInt(int64(tm.rsa.PublicKey.E)), tm.rsa.N)
 	want := sha256.Sum256(ticket)
