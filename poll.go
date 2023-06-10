@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/big"
 	"sync"
@@ -35,6 +36,7 @@ outer:
 						if err != nil {
 							return err
 						}
+						fmt.Println("new valid tx found", tx.Hash().Hex())
 					}
 				}
 				return nil

@@ -60,7 +60,7 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 	var req ticketRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error decoding: %v", err)
+		fmt.Fprintf(os.Stderr, "error decoding: %v\n", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -77,12 +77,12 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading txhash: %v", err)
+		fmt.Fprintf(os.Stderr, "error reading txhash: %v\n", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	if !bytes.Equal(txdata, req.BlindedTicket) {
-		fmt.Fprintf(os.Stderr, "txdata does not match ticket: got %x, have %x", txdata, req.BlindedTicket)
+		fmt.Fprintf(os.Stderr, "txdata does not match ticket: got %x, have %x\n", txdata, req.BlindedTicket)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -90,6 +90,8 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 	// Sign ticket.
 	st := new(big.Int).SetBytes(req.BlindedTicket)
 	st = st.Exp(st, t.rsa.D, t.rsa.N)
+
+	fmt.Printf("valid request, signing ticket %x\n", st.Bytes())
 
 	res := ticketResponse{SignedBlindedTicket: st.Bytes()}
 	json.NewEncoder(w).Encode(res)
@@ -110,6 +112,7 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	var req fundRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error decoding: %v\n", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -178,7 +181,7 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err = t.client.SendTransaction(context.Background(), signedTx); err != nil {
-		log.Printf("error sending transaction: %v", err)
+		log.Printf("error sending transaction: %v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
