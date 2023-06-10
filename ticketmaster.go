@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -122,8 +121,7 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 	for i, ticket := range req.Tickets {
 		sig := big.NewInt(0).SetBytes(req.Signatures[i])
 		got := sig.Exp(sig, big.NewInt(int64(t.rsa.PublicKey.E)), t.rsa.N)
-		want := sha256.Sum256(ticket)
-		if !bytes.Equal(got.Bytes(), want[:]) {
+		if !bytes.Equal(got.Bytes(), ticket[:]) {
 			log.Println("invalid signature")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
