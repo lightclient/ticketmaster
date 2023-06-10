@@ -102,7 +102,7 @@ func newTicketMaster(t *testing.T, client *ethclient.Client) *TicketMaster {
 	if err != nil {
 		t.Fatalf("unable to generate rsa key: %v", err)
 	}
-	return &TicketMaster{db: db, rsa: rsa, pk: testKey, client: client}
+	return &TicketMaster{db: db, rsa: rsa, sk: testKey, client: client}
 }
 
 func blindedTicket(ticket []byte, target rsa.PublicKey) (*big.Int, []byte) {
@@ -149,7 +149,7 @@ func TestHandleTicket(t *testing.T) {
 
 	// Request ticket from master.
 	var (
-		url = fmt.Sprintf("%s/ticket", srv.URL)
+		url = fmt.Sprintf("%s/buy", srv.URL)
 		req = &ticketRequest{BlindedTicket: bTicket, TransactionHash: txhash}
 		w   = bytes.NewBuffer(nil)
 	)
@@ -192,8 +192,8 @@ func TestFundAccount(t *testing.T) {
 
 	// Request funds.
 	var (
-		url = fmt.Sprintf("%s/fund", srv.URL)
-		req = &fundRequest{Address: common.Address{0x42}, Tickets: []hexutil.Bytes{ticket}, Signatures: []hexutil.Bytes{signTicket(ticket, tm.rsa)}}
+		url = fmt.Sprintf("%s/redeem", srv.URL)
+		req = &fundRequest{Address: common.Address{0x42}, HashedTickets: []hexutil.Bytes{ticket}, Signatures: []hexutil.Bytes{signBlindedTicket(tm.rsa, ticket)}}
 		w   = bytes.NewBuffer(nil)
 	)
 	json.NewEncoder(w).Encode(req)

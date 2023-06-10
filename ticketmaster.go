@@ -18,29 +18,38 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/params"
 )
 
+const (
+	ticketCost         = 10_000_000_000_000_000
+	txFee              = 0
+	ticketCostMinusFee = ticketCost - txFee
+)
+
+// TicketMaster manages the ticket collection, responding to http requests to
+// buy and redeem.
 type TicketMaster struct {
 	db     *badger.DB
 	rsa    *rsa.PrivateKey
-	pk     *ecdsa.PrivateKey
+	sk     *ecdsa.PrivateKey
 	client *ethclient.Client
 }
 
 func (t *TicketMaster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
-	case "/ticket":
+	case "/buy":
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		t.handleTicket(w, r)
-	case "/fund":
+		t.handleBuy(w, r)
+	case "/redeem":
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		t.handleFund(w, r)
+		t.handleRedeem(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -55,7 +64,9 @@ type ticketResponse struct {
 	SignedBlindedTicket []hexutil.Bytes `json:"signed_blinded_ticket"`
 }
 
-func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
+// handleBuy allows a caller to request a the coordinator to process its ticket
+// purchase which was initiated on-chain.
+func (t *TicketMaster) handleBuy(w http.ResponseWriter, r *http.Request) {
 	var req ticketRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -64,7 +75,7 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// verify req.TransactionHash
+	// Verify we've seen the transaction hash from the caller.
 	var txdata []byte
 	err = t.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(req.TransactionHash.Bytes())
@@ -76,30 +87,31 @@ func (t *TicketMaster) handleTicket(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
+		// Ticket not found, or error reading database.
 		fmt.Fprintf(os.Stderr, "error reading txhash: %v\n", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	// Verify the blinded ticket matches the ticket in the calldata.
 	if !bytes.Equal(txdata, req.BlindedTicket) {
 		fmt.Fprintf(os.Stderr, "txdata does not match ticket: got %x, have %x\n", txdata, req.BlindedTicket)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	// Sign ticket.
-	st := new(big.Int).SetBytes(req.BlindedTicket)
-	st = st.Exp(st, t.rsa.D, t.rsa.N)
+	// Sign blinded ticket.
+	sbTicket := signBlindedTicket(t.rsa, req.BlindedTicket)
+	fmt.Printf("valid request, signing ticket %x\n", sbTicket)
 
-	fmt.Printf("valid request, signing ticket %x\n", st.Bytes())
-
-	res := ticketResponse{SignedBlindedTicket: []hexutil.Bytes{st.Bytes()}}
+	// Return signed blinded ticket.
+	res := ticketResponse{SignedBlindedTicket: []hexutil.Bytes{sbTicket}}
 	json.NewEncoder(w).Encode(res)
 }
 
 type fundRequest struct {
-	Address    common.Address  `json:"address"`
-	Tickets    []hexutil.Bytes `json:"ticket"`
-	Signatures []hexutil.Bytes `json:"signature"`
+	Address       common.Address  `json:"address"`
+	HashedTickets []hexutil.Bytes `json:"tickets"`
+	Signatures    []hexutil.Bytes `json:"signatures"`
 }
 
 type fundResponse struct {
@@ -107,7 +119,9 @@ type fundResponse struct {
 	Hash           common.Hash   `json:"txhash"`
 }
 
-func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
+// handleRedeem allows a ticket owner to redeem their ticket and sends the
+// associated funds to the requested account.
+func (t *TicketMaster) handleRedeem(w http.ResponseWriter, r *http.Request) {
 	var req fundRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -116,26 +130,27 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check the signature is from us
-	valid := int64(0)
-	for i, ticket := range req.Tickets {
-		sig := big.NewInt(0).SetBytes(req.Signatures[i])
-		got := sig.Exp(sig, big.NewInt(int64(t.rsa.PublicKey.E)), t.rsa.N)
-		if !bytes.Equal(got.Bytes(), ticket[:]) {
-			log.Println("invalid signature")
+	// Verify signature.
+	validTickets := 0
+	for i, ticket := range req.HashedTickets {
+		// Verify signature.
+		if !verifySignature(&t.rsa.PublicKey, req.Signatures[i], ticket) {
+			fmt.Fprintln(os.Stderr, "invalid signature")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		// Check that this signature hasn't already been used
-		var alreadyused bool
+		// Check if signature has been redeemed.
+		var redeemed bool
 		err = t.db.View(func(txn *badger.Txn) error {
 			_, err := txn.Get(append([]byte("sig"), req.Signatures[i]...))
 			if err == badger.ErrKeyNotFound {
+				// Key is good.
 				return nil
 			}
+			// Key found, already used.
 			if err == nil {
-				alreadyused = true
+				redeemed = true
 			}
 			return err
 		})
@@ -144,35 +159,15 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if alreadyused {
+		if redeemed {
 			log.Println("signature was already used")
 			w.WriteHeader(http.StatusAlreadyReported)
 			return
 		}
-		valid += 1
+		validTickets += 1
 	}
 
-	// Create the transaction
-	nonce, err := t.client.NonceAt(context.Background(), crypto.PubkeyToAddress(t.pk.PublicKey), nil)
-	if err != nil {
-		log.Printf("failed to retrieve nonce: %v\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	amount := big.NewInt(ticketCostMinusFee * valid)
-	gasLimit := uint64(txGasLimit)
-	gasPrice := big.NewInt(20000000000) // 20 gwei
-
-	tx := types.NewTransaction(nonce, req.Address, amount, gasLimit, gasPrice, nil)
-
-	signer := types.NewEIP155Signer(big.NewInt(11155111))
-	signedTx, _ := types.SignTx(tx, signer, t.pk)
-
-	var buf bytes.Buffer
-	if err = signedTx.EncodeRLP(&buf); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-
-	// Store the signature
+	// Store the signature to avoid replays.
 	for _, sig := range req.Signatures {
 		err = t.db.Update(func(txn *badger.Txn) error {
 			return txn.Set(append([]byte("sig"), sig...), []byte{1})
@@ -184,12 +179,49 @@ func (t *TicketMaster) handleFund(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err = t.client.SendTransaction(context.Background(), signedTx); err != nil {
+	// Create transaction.
+	tx, err := t.createTx(req.Address, validTickets)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating redemption tx: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	// Send transaction.
+	if err = t.client.SendTransaction(context.Background(), tx); err != nil {
 		log.Printf("error sending transaction: %v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	res := fundResponse{RawTransaction: buf.Bytes(), Hash: signedTx.Hash()}
+	res := fundResponse{RawTransaction: nil, Hash: tx.Hash()}
 	json.NewEncoder(w).Encode(res)
+}
+
+// createTx creates a transaction funding the requested account.
+func (t *TicketMaster) createTx(to common.Address, tickets int) (*types.Transaction, error) {
+	ctx := context.Background()
+	// Get nonce.
+	nonce, err := t.client.NonceAt(ctx, crypto.PubkeyToAddress(t.sk.PublicKey), nil)
+	if err != nil {
+		log.Printf("failed to retrieve nonce: %v\n", err)
+
+	}
+	// Get block to get recent base fee.
+	block, err := t.client.BlockByNumber(ctx, nil)
+	if err != nil {
+		log.Printf("failed to retrieve nonce: %v\n", err)
+
+	}
+	// Create and sign tx.
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   params.SepoliaChainConfig.ChainID,
+		Nonce:     nonce,
+		GasTipCap: big.NewInt(42), // god bless the block producer
+		GasFeeCap: block.BaseFee().Mul(block.BaseFee(), common.Big2),
+		Gas:       params.TxGas, // no free lunch
+		To:        &to,
+		Value:     big.NewInt(ticketCostMinusFee * int64(tickets)),
+	})
+	signer := types.NewEIP155Signer(params.SepoliaChainConfig.ChainID)
+	return types.SignTx(tx, signer, t.sk)
 }

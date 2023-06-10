@@ -33,7 +33,7 @@ outer:
 					}
 					seen[tx.Hash()] = true
 
-					if tx.To() != nil && *tx.To() == crypto.PubkeyToAddress(t.pk.PublicKey) {
+					if tx.To() != nil && *tx.To() == crypto.PubkeyToAddress(t.sk.PublicKey) {
 						if tx.Value().Cmp(big.NewInt(ticketCost)) != 0 {
 							log.Printf("found transaction with insufficient costs for ticket purchase: %v", tx.Value())
 							continue
